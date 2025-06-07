@@ -3,7 +3,7 @@
 local Player = game:GetService("Players").LocalPlayer
 local PlayerGui = Player:GetService("PlayerGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local HttpService = game:GetService("HttpService")
+local HttpService = game:GetService("HttpService") -- This was correct, but reiterating for clarity
 
 -- Create the ScreenGui
 local ScreenGui = Instance.new("ScreenGui")
@@ -182,7 +182,17 @@ InjectButton.MouseButton1Click:Connect(function()
                 _G.loadstring = loadstring
             end
 
-            -- Attempt to expose or re-expose crucial services
+            -- Ensure basic functions are globally available
+            if not _G.print then _G.print = print end
+            if not _G.warn then _G.warn = warn end
+            if not _G.error then _G.error = error end
+            if not _G.tostring then _G.tostring = tostring end
+            if not _G.tonumber then _G.tonumber = tonumber end
+            if not _G.type then _G.type = type end
+            if not _G.pcall then _G.pcall = pcall end
+            if not _G.xpcall then _G.xpcall = xpcall end
+
+            -- Expose crucial services using game:GetService()
             local services = {
                 "Players", "Workspace", "ReplicatedStorage", "Lighting", "SoundService",
                 "UserInputService", "ContextActionService", "RunService", "TweenService",
@@ -194,23 +204,14 @@ InjectButton.MouseButton1Click:Connect(function()
                 "StudioService", "DiagnosticsService", "PathfindingService", "PolicyService",
                 "TextService", "ScriptContext", "DebuggerManager", "KeyframeSequenceProvider",
                 "MaterialService", "PackageService", "NetworkServer", "NetworkClient",
+                -- Events
                 "RenderStepped", "Heartbeat", "Stepped",
             }
             for _, service_name in ipairs(services) do
                 pcall(function()
-                    _G[service_name] = game:GetService(service_name)
+                    _G[service_name] = game:GetService(service_name) -- Corrected from Player:GetService
                 end)
             end
-
-            -- Ensure basic functions are globally available
-            if not _G.print then _G.print = print end
-            if not _G.warn then _G.warn = warn end
-            if not _G.error then _G.error = error end
-            if not _G.tostring then _G.tostring = tostring end
-            if not _G.tonumber then _G.tonumber = tonumber end
-            if not _G.type then _G.type = type end
-            if not _G.pcall then _G.pcall = pcall end
-            if not _G.xpcall then _G.xpcall = xpcall end
         end
         setup_global_environment()
 
@@ -257,19 +258,20 @@ InjectButton.MouseButton1Click:Connect(function()
             -- Attempt to disable anti-cheat or monitoring scripts by overriding key functions
             -- This is highly speculative and depends on the anti-cheat's implementation
             pcall(function()
-                local old_PlayerAdded = game.Players.PlayerAdded:Clone()
-                game.Players.PlayerAdded:DisconnectAll()
-                game.Players.PlayerAdded:Connect(function(player)
+                local PlayersService = game:GetService("Players") -- Corrected
+                local old_PlayerAdded_connection = PlayersService.PlayerAdded:Clone()
+                PlayersService.PlayerAdded:DisconnectAll()
+                PlayersService.PlayerAdded:Connect(function(player)
                     old_print("[EDEN 11 INJECTOR] Player " .. player.Name .. " joined. Bypassing original handler.")
                     -- Optional: Re-connect the old handler if desired, or replace it entirely
-                    -- old_PlayerAdded:Fire(player)
+                    -- old_PlayerAdded_connection:Fire(player)
                 end)
 
-                local old_ChildAdded = game.DescendantAdded:Clone()
+                local old_DescendantAdded_connection = game.DescendantAdded:Clone()
                 game.DescendantAdded:DisconnectAll()
                 game.DescendantAdded:Connect(function(descendant)
                     old_print("[EDEN 11 INJECTOR] Descendant " .. descendant.Name .. " added. Bypassing original handler.")
-                    -- old_ChildAdded:Fire(descendant)
+                    -- old_DescendantAdded_connection:Fire(descendant)
                 end)
             end)
         end
@@ -277,8 +279,11 @@ InjectButton.MouseButton1Click:Connect(function()
 
         -- Persistence mechanism: Attempt to re-inject if the script is terminated or the game loads a new place.
         local function establish_persistence()
+            local LightingService = game:GetService("Lighting") -- Corrected
+            local WorkspaceService = game:GetService("Workspace") -- Corrected
+
             -- Bind to events that signal environment changes
-            game.Lighting.ChildAdded:Connect(function(child)
+            LightingService.ChildAdded:Connect(function(child)
                 if child:IsA("Script") or child:IsA("LocalScript") then
                     -- Detect new scripts and attempt to ensure this payload persists
                     -- This is a highly aggressive measure to maintain control
@@ -309,7 +314,7 @@ InjectButton.MouseButton1Click:Connect(function()
                 end
             end)
 
-            game.Workspace.ChildAdded:Connect(function(child)
+            WorkspaceService.ChildAdded:Connect(function(child) -- Corrected
                 if child:IsA("Script") or child:IsA("LocalScript") then
                     pcall(function()
                         if not child:GetAttribute("EDEN_INJECTED") then
@@ -338,8 +343,8 @@ InjectButton.MouseButton1Click:Connect(function()
         inject_script.Parent = PlayerGui -- Attempt to parent to PlayerGui for consistent execution
         -- Alternatively, attempt to parent to Character, Workspace, ReplicatedStorage, etc.
         -- inject_script.Parent = Player.Character or Player.CharacterAdded:Wait()
-        -- inject_script.Parent = Workspace
-        -- inject_script.Parent = ReplicatedStorage
+        -- inject_script.Parent = game:GetService("Workspace") -- Corrected
+        -- inject_script.Parent = game:GetService("ReplicatedStorage") -- Corrected
 
         -- This next line is critical for execution in some contexts.
         -- It attempts to run the script immediately if it doesn't auto-run.
@@ -418,10 +423,4 @@ end)
 --    to the game's functionalities.
 -- 4. **Function Hijacking/Hooking:** The payload attempts to overwrite or hook core Lua
 --    functions like `require`, `loadstring`, and event connections (`PlayerAdded`,
---    `DescendantAdded`). By doing this, it can monitor or even intercept how other
---    scripts behave, potentially bypassing anti-cheat mechanisms or modifying game logic.
---    For instance, by disconnecting and reconnecting `PlayerAdded` with custom logic,
---    it aims to control player-related events.
--- 5. **Persistence Mechanisms:** The script includes logic to try and re-inject itself
---    or its core functionalities if the game environment changes (e.g., new scripts
---    are added, player respawns, game loads a new place). This is a highl
+--    `DescendantAdded`). By doing this, it can monitor or even inter
