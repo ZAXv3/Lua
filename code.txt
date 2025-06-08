@@ -1,0 +1,553 @@
+-- MeraiX Terminal v3 - Type-only terminal style, draggable, mobile-friendly
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+
+-- Create ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "MeraiX_Terminal"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = game.CoreGui
+
+-- Main Frame (terminal window)
+local frame = Instance.new("Frame", screenGui)
+frame.Size = UDim2.new(0.9, 0, 0.55, 0)
+frame.Position = UDim2.new(0.05, 0, 0.25, 0)
+frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = false -- We'll do manual drag for better mobile support
+frame.ClipsDescendants = true
+local uicorner = Instance.new("UICorner", frame)
+uicorner.CornerRadius = UDim.new(0, 8)
+
+-- UIAspectRatioConstraint for scaling nicely
+local aspect = Instance.new("UIAspectRatioConstraint", frame)
+aspect.AspectRatio = 1.9 -- wide rectangle, tweak if needed
+
+-- Output (scrollable TextLabel inside ScrollingFrame)
+local outputScroller = Instance.new("ScrollingFrame", frame)
+outputScroller.Size = UDim2.new(1, -20, 1, -55)
+outputScroller.Position = UDim2.new(0, 10, 0, 10)
+outputScroller.BackgroundTransparency = 1
+outputScroller.BorderSizePixel = 0
+outputScroller.ScrollBarThickness = 6
+outputScroller.CanvasSize = UDim2.new(0, 0, 10, 0)
+outputScroller.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local output = Instance.new("TextLabel", outputScroller)
+output.Size = UDim2.new(1, -10, 0, 0)
+output.Position = UDim2.new(0, 5, 0, 5)
+output.BackgroundTransparency = 1
+output.Font = Enum.Font.Code
+output.TextSize = 16
+output.TextColor3 = Color3.fromRGB(0, 255, 0)
+output.TextXAlignment = Enum.TextXAlignment.Left
+output.TextYAlignment = Enum.TextYAlignment.Top
+output.TextWrapped = true
+output.Text = ""
+
+-- Input TextBox
+local input = Instance.new("TextBox", frame)
+input.Size = UDim2.new(1, -20, 0, 35)
+input.Position = UDim2.new(0, 10, 1, -40)
+input.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+input.TextColor3 = Color3.fromRGB(0, 255, 0)
+input.Font = Enum.Font.Code
+input.TextSize = 16
+input.ClearTextOnFocus = false
+input.PlaceholderText = "Type a command, then press Enter..."
+input.TextXAlignment = Enum.TextXAlignment.Left
+input.TextYAlignment = Enum.TextYAlignment.Center
+input.Text = ""
+
+local inputUICorner = Instance.new("UICorner", input)
+inputUICorner.CornerRadius = UDim.new(0, 6)
+
+-- Minimize button
+local minimizeBtn = Instance.new("TextButton", frame)
+minimizeBtn.Size = UDim2.new(0, 30, 0, 30)
+minimizeBtn.Position = UDim2.new(1, -35, 0, 5)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+minimizeBtn.TextColor3 = Color3.fromRGB(0, 255, 0)
+minimizeBtn.Font = Enum.Font.Code
+minimizeBtn.TextSize = 20
+minimizeBtn.Text = "-"
+
+local minUICorner = Instance.new("UICorner", minimizeBtn)
+minUICorner.CornerRadius = UDim.new(0, 6)
+
+-- Code Icon button (restore)
+local codeIcon = Instance.new("TextButton", screenGui)
+codeIcon.Size = UDim2.new(0, 45, 0, 45)
+codeIcon.Position = UDim2.new(0.02, 0, 0.9, 0)
+codeIcon.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+codeIcon.TextColor3 = Color3.fromRGB(0, 255, 0)
+codeIcon.Font = Enum.Font.Code
+codeIcon.TextSize = 24
+codeIcon.Text = "</>"
+codeIcon.Visible = false
+codeIcon.AutoButtonColor = true
+
+local codeIconCorner = Instance.new("UICorner", codeIcon)
+codeIconCorner.CornerRadius = UDim.new(0, 8)
+
+-- Drag support for frame (desktop + mobile)
+local dragging, dragInput, dragStart, startPos
+
+local function updatePosition(input)
+	local delta = input.Position - dragStart
+	frame.Position = UDim2.new(
+		math.clamp(startPos.X.Scale + delta.X/screenGui.AbsoluteSize.X, 0, 1 - frame.Size.X.Scale),
+		startPos.X.Offset + delta.X,
+		math.clamp(startPos.Y.Scale + delta.Y/screenGui.AbsoluteSize.Y, 0, 1 - frame.Size.Y.Scale),
+		startPos.Y.Offset + delta.Y
+	)
+end
+
+frame.InputBegan:Connect(function(inputObj)
+	if inputObj.UserInputType == Enum.UserInputType.MouseButton1 or inputObj.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = inputObj.Position
+		startPos = frame.Position
+
+		inputObj.Changed:Connect(function()
+			if inputObj.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+frame.InputChanged:Connect(function(inputObj)
+	if inputObj.UserInputType == Enum.UserInputType.MouseMovement or inputObj.UserInputType == Enum.UserInputType.Touch then
+		dragInput = inputObj
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(inputObj)
+	if dragging and inputObj == dragInput then
+		updatePosition(inputObj)
+	end
+end)
+
+-- Output print helper with autoscroll
+local function printToTerminal(text)
+	output.Text = output.Text .. "\n" .. text
+	wait() -- yield to update TextLabel size
+
+	-- Update output TextLabel size
+	output.Size = UDim2.new(1, -10, 0, output.TextBounds.Y + 10)
+	-- Update scrolling canvas size to match output text
+	outputScroller.CanvasSize = UDim2.new(0, 0, 0, output.TextBounds.Y + 15)
+	-- Scroll to bottom
+	outputScroller.CanvasPosition = Vector2.new(0, outputScroller.CanvasSize.Y.Offset)
+end
+
+-- Fake loading (boot)
+local function fakeBoot()
+	local bootLines = {
+		"[MeraiX-Terminal] Booting up...",
+		"[MeraiX-Terminal] Loading core modules...",
+		"[MeraiX-Terminal] Ready. Type 'help' for commands.",
+ "[MeraiX-Terminal] Join our discord server: nothing for now :3"
+	}
+	for _, line in ipairs(bootLines) do
+		printToTerminal(line)
+		wait(0.6)
+	end
+end
+
+-- Commands list with description
+local commandHelp = [[
+Available commands:
+
+fly - Enable flying
+unfly - Disable flying
+noclip - Enable noclip
+unnoclip - Disable noclip
+antiafk - Prevent AFK kick
+antivoid - Prevent void death
+antifling - Remove fling mechanics
+adonisbypass - Bypass Adonis admin
+walkspeed [num] - Set walkspeed
+tptool - Give teleport tool
+invistool - Give invisibility tool
+actnpc - Activate NPCs to follow
+unactnpc - Stop NPCs
+godmode - Enable godmode
+rejoin - Rejoin the game
+serverhop - Hop servers
+antichatlogs - Prevent chat logging
+fakelag - Enable fake lag (low graphics)
+unfakelag - Disable fake lag
+dex - Load Dex Explorer
+execute [code] - Run Lua code
+help - Show this help
+]]
+
+-- Storage for command states
+local noclipEnabled = false
+local afkConnection
+local flyConnection
+
+-- Command execution function
+local function executeCommand(cmd)
+	if cmd == "" then return end
+	local args = {}
+	for word in cmd:gmatch("%S+") do table.insert(args, word) end
+	local name = args[1]:lower()
+
+	printToTerminal("> " .. cmd)
+
+	if name == "help" then
+		printToTerminal(commandHelp)
+
+	elseif name == "fly" then
+		local character = LocalPlayer.Character
+		if not character or not character:FindFirstChild("HumanoidRootPart") then
+			printToTerminal("Error: Character not loaded.")
+			return
+		end
+
+		if flyConnection then
+			printToTerminal("Fly is already enabled.")
+			return
+		end
+
+		local userInputService = game:GetService("UserInputService")
+		local humanoidRootPart = character.HumanoidRootPart
+		local flying = true
+		local speed = 50
+		local bodyGyro = Instance.new("BodyGyro", humanoidRootPart)
+		bodyGyro.P = 9e4
+		bodyGyro.MaxTorque = Vector3.new(9e5, 9e5, 9e5)
+		bodyGyro.CFrame = humanoidRootPart.CFrame
+		local bodyVelocity = Instance.new("BodyVelocity", humanoidRootPart)
+		bodyVelocity.Velocity = Vector3.new(0,0,0)
+		bodyVelocity.MaxForce = Vector3.new(9e5, 9e5, 9e5)
+
+		flyConnection = RunService.RenderStepped:Connect(function()
+			bodyGyro.CFrame = workspace.CurrentCamera.CFrame
+			bodyVelocity.MaxForce = Vector3.new(9e5, 9e5, 9e5)
+			bodyVelocity.Velocity = Vector3.new(0,0,0)
+
+			if userInputService:IsKeyDown(Enum.KeyCode.W) then
+				bodyVelocity.Velocity = workspace.CurrentCamera.CFrame.LookVector * speed
+			elseif userInputService:IsKeyDown(Enum.KeyCode.S) then
+				bodyVelocity.Velocity = -workspace.CurrentCamera.CFrame.LookVector * speed
+			end
+			if userInputService:IsKeyDown(Enum.KeyCode.A) then
+				bodyVelocity.Velocity = -workspace.CurrentCamera.CFrame.RightVector * speed
+			elseif userInputService:IsKeyDown(Enum.KeyCode.D) then
+				bodyVelocity.Velocity = workspace.CurrentCamera.CFrame.RightVector * speed
+			end
+			if userInputService:IsKeyDown(Enum.KeyCode.Space) then
+				bodyVelocity.Velocity = Vector3.new(0,speed,0)
+			elseif userInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+				bodyVelocity.Velocity = Vector3.new(0,-speed,0)
+			end
+		end)
+
+		printToTerminal("Fly enabled. Use WASD + Space/Shift to move.")
+
+	elseif name == "unfly" then
+		if flyConnection then
+			flyConnection:Disconnect()
+			flyConnection = nil
+			local character = LocalPlayer.Character
+			if character then
+				for _, v in pairs(character.HumanoidRootPart:GetChildren()) do
+					if v:IsA("BodyGyro") or v:IsA("BodyVelocity") then
+						v:Destroy()
+					end
+				end
+			end
+			printToTerminal("Fly disabled.")
+		else
+			printToTerminal("Fly not enabled.")
+		end
+
+	elseif name == "noclip" then
+		if noclipEnabled then
+			printToTerminal("Noclip already enabled.")
+			return
+		end
+
+		noclipEnabled = true
+		RunService.Stepped:Connect(function()
+			if noclipEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+				for _, part in pairs(LocalPlayer.Character:GetChildren()) do
+					if part:IsA("BasePart") and part.CanCollide == true then
+						part.CanCollide = false
+					end
+				end
+			end
+		end)
+		printToTerminal("Noclip enabled.")
+
+	elseif name == "unnoclip" then
+		if noclipEnabled then
+			noclipEnabled = false
+			if LocalPlayer.Character then
+				for _, part in pairs(LocalPlayer.Character:GetChildren()) do
+					if part:IsA("BasePart") then
+						part.CanCollide = true
+					end
+				end
+			end
+			printToTerminal("Noclip disabled.")
+		else
+			printToTerminal("Noclip not enabled.")
+		end
+
+	elseif name == "antiafk" then
+		if afkConnection then
+			printToTerminal("AntiAFK already enabled.")
+			return
+		end
+		local vu = game:GetService("VirtualUser")
+		afkConnection = LocalPlayer.Idled:Connect(function()
+			vu:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+			wait(1)
+			vu:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+		end)
+		printToTerminal("AntiAFK enabled.")
+
+	elseif name == "antivoid" then
+		if workspace:FindFirstChild("MeraiX_AntiVoid") then
+			printToTerminal("AntiVoid already enabled.")
+			return
+		end
+		local part = Instance.new("Part", workspace)
+		part.Anchored = true
+		part.Size = Vector3.new(5000, 5, 5000)
+		part.Position = Vector3.new(0, -10, 0)
+		part.Name = "MeraiX_AntiVoid"
+		part.Transparency = 1
+		part.CanCollide = true
+		printToTerminal("AntiVoid enabled.")
+
+	elseif name == "antifling" then
+		for _, p in ipairs(workspace:GetDescendants()) do
+			if p:IsA("BodyMover") or p:IsA("BodyPosition") or p:IsA("BodyGyro") then
+				p:Destroy()
+			end
+		end
+		printToTerminal("All fling mechanics removed.")
+
+	elseif name == "adonisbypass" then
+		local success, err = pcall(function()
+			loadstring(game:HttpGet("https://raw.githubusercontent.com/filtercode/adonis-bypass/main/main.lua"))()
+		end)
+		if success then
+			printToTerminal("Adonis bypass executed.")
+		else
+			printToTerminal("Error executing Adonis bypass: " .. err)
+		end
+
+-- Continue command handler
+
+	elseif name == "walkspeed" then
+		local speed = tonumber(args[2])
+		local character = LocalPlayer.Character
+		if not speed then
+			printToTerminal("Usage: walkspeed [number]")
+		elseif character and character:FindFirstChildOfClass("Humanoid") then
+			character:FindFirstChildOfClass("Humanoid").WalkSpeed = speed
+			printToTerminal("Walkspeed set to " .. speed)
+		else
+			printToTerminal("Error: Character or Humanoid not found.")
+		end
+
+	elseif name == "tptool" then
+		-- Simple teleport tool creation (basic)
+		local tool = Instance.new("Tool")
+		tool.Name = "TPTool"
+		tool.RequiresHandle = false
+		tool.CanBeDropped = false
+		local remote = Instance.new("RemoteEvent", tool)
+		remote.Name = "TeleportEvent"
+
+		tool.Activated:Connect(function()
+			local mouse = LocalPlayer:GetMouse()
+			if mouse then
+				local character = LocalPlayer.Character
+				if character and character:FindFirstChild("HumanoidRootPart") then
+					character.HumanoidRootPart.CFrame = CFrame.new(mouse.Hit.p + Vector3.new(0,5,0))
+					printToTerminal("Teleported to mouse position.")
+				end
+			end
+		end)
+		tool.Parent = LocalPlayer.Backpack
+		printToTerminal("Teleport Tool added to Backpack.")
+
+	elseif name == "invistool" then
+		-- Invisibility tool (toggles transparency on activation)
+		local tool = Instance.new("Tool")
+		tool.Name = "InvisTool"
+		tool.RequiresHandle = false
+		tool.CanBeDropped = false
+
+		tool.Activated:Connect(function()
+			local character = LocalPlayer.Character
+			if character then
+				for _, part in pairs(character:GetChildren()) do
+					if part:IsA("BasePart") then
+						part.Transparency = part.Transparency == 0 and 0.7 or 0
+					end
+				end
+				printToTerminal("Toggled invisibility.")
+			end
+		end)
+		tool.Parent = LocalPlayer.Backpack
+		printToTerminal("Invisibility Tool added to Backpack.")
+
+	elseif name == "actnpc" then
+		-- Dummy NPC follower example
+		local npc = workspace:FindFirstChild("MeraiX_NPC")
+		if npc then
+			printToTerminal("NPC already active.")
+			return
+		end
+		local npcModel = Instance.new("Model", workspace)
+		npcModel.Name = "MeraiX_NPC"
+		local part = Instance.new("Part", npcModel)
+		part.Size = Vector3.new(2, 5, 2)
+		part.Anchored = false
+		part.Position = LocalPlayer.Character and LocalPlayer.Character.HumanoidRootPart.Position + Vector3.new(3,0,3) or Vector3.new(0,5,0)
+		part.Name = "HumanoidRootPart"
+		local humanoid = Instance.new("Humanoid", npcModel)
+
+		-- Simple follow loop
+		spawn(function()
+			while npcModel.Parent do
+				if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+					local targetPos = LocalPlayer.Character.HumanoidRootPart.Position
+					part.Velocity = (targetPos - part.Position).unit * 10
+				end
+				wait(0.3)
+			end
+		end)
+
+		printToTerminal("NPC activated and following player.")
+
+	elseif name == "unactnpc" then
+		local npc = workspace:FindFirstChild("MeraiX_NPC")
+		if npc then
+			npc:Destroy()
+			printToTerminal("NPC deactivated.")
+		else
+			printToTerminal("No active NPC found.")
+		end
+
+	elseif name == "godmode" then
+		local character = LocalPlayer.Character
+		if character then
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid.MaxHealth = math.huge
+				humanoid.Health = math.huge
+				printToTerminal("Godmode enabled (health set to infinite).")
+			else
+				printToTerminal("Humanoid not found.")
+			end
+		else
+			printToTerminal("Character not loaded.")
+		end
+
+	elseif name == "rejoin" then
+		printToTerminal("Rejoining server...")
+		wait(1)
+		game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer)
+
+	elseif name == "serverhop" then
+		printToTerminal("Serverhop not implemented in this version.")
+		-- Implementing serverhop is complex, omitted for brevity
+
+	elseif name == "antichatlogs" then
+		printToTerminal("AntiChatLogs not implemented in this version.")
+
+	elseif name == "fakelag" then
+		-- Lower graphics settings to induce lag (fake)
+		local playerSettings = LocalPlayer.PlayerGui:FindFirstChildOfClass("PlayerScripts") or LocalPlayer:FindFirstChild("PlayerScripts")
+		if playerSettings then
+			for _, service in pairs({game:GetService("Lighting"), UserInputService}) do
+				pcall(function()
+					service.GlobalShadows = false
+					service.FogEnd = 0
+					service.Brightness = 0
+				end)
+			end
+		end
+		printToTerminal("Fake lag enabled.")
+
+	elseif name == "unfakelag" then
+		local lighting = game:GetService("Lighting")
+		lighting.GlobalShadows = true
+		lighting.FogEnd = 100000
+		lighting.Brightness = 2
+		printToTerminal("Fake lag disabled.")
+
+	elseif name == "dex" then
+		printToTerminal("Loading Dex Explorer...")
+		local success, err = pcall(function()
+			loadstring(game:HttpGet("https://raw.githubusercontent.com/ExplosiveGod/Dex/master/DexExplorer.lua"))()
+		end)
+		if success then
+			printToTerminal("Dex Explorer loaded.")
+		else
+			printToTerminal("Error loading Dex Explorer: " .. tostring(err))
+		end
+
+	elseif name == "execute" then
+		local code = cmd:sub(9) -- after "execute "
+		if code == "" then
+			printToTerminal("Usage: execute [Lua code]")
+		else
+			local func, err = loadstring(code)
+			if func then
+				local success, execErr = pcall(func)
+				if success then
+					printToTerminal("Executed code successfully.")
+				else
+					printToTerminal("Error executing code: " .. tostring(execErr))
+				end
+			else
+				printToTerminal("Error loading code: " .. tostring(err))
+			end
+		end
+
+	else
+		printToTerminal("Unknown command: " .. name .. ". Type 'help' for command list.")
+	end
+end
+
+-- Input enter key handling
+input.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		local cmd = input.Text
+		input.Text = ""
+		executeCommand(cmd)
+	end
+end)
+
+-- Minimize button behavior
+minimizeBtn.MouseButton1Click:Connect(function()
+	frame.Visible = false
+	codeIcon.Visible = true
+end)
+
+codeIcon.MouseButton1Click:Connect(function()
+	frame.Visible = true
+	codeIcon.Visible = false
+	input:CaptureFocus()
+end)
+
+-- Run fake boot loading
+fakeBoot()
+
+-- Focus input automatically on open
+input:CaptureFocus()
